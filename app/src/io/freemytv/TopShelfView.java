@@ -96,6 +96,8 @@ final class TopShelfView {
         @Override public void run() {
             try {
                 followCard(true);
+                // A picture already in memory starts its crossfade here, outside a frame: run the frames for it.
+                host.wake();
             } catch (RuntimeException e) {
                 host.fault("shelf follow", e);
             }
