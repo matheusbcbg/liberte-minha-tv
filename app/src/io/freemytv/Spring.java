@@ -36,6 +36,9 @@ final class Spring {
     }
 
     boolean settled() {
-        return Math.abs(value - target) < 0.0008f && Math.abs(velocity) < 0.004f;
+        // Past ~512 (pixels), a step can be under half a float's ulp: the value freezes a few ulps from the target and
+        // would never settle, so the tolerance grows with the target's ulp (unchanged for unit-scale springs).
+        float tol = Math.max(0.0008f, Math.ulp(target) * 64f);
+        return Math.abs(value - target) < tol && Math.abs(velocity) < Math.max(0.004f, tol * 20f);
     }
 }

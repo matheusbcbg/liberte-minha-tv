@@ -1,7 +1,12 @@
-# Free My TV: notes for Claude
+# Liberte minha TV (por Bc): notes for Claude
+
+A fork of Free My TV (github.com/simbasjungles/free-my-tv, MIT), published at
+github.com/matheusbcbg/liberte-minha-tv. The app is called "Liberte minha TV - por Bc"; its package (`io.freemytv`),
+class names and file names keep the original's, so installed TVs keep updating.
+
 
 A home screen for Google TV and Android TV that replaces the stock one, plus a settings app that switches between
-Free My TV and the TV's original home screen. A plain Android app in Java, built without Gradle by `build.sh`.
+Liberte minha TV and the TV's original home screen. A plain Android app in Java, built without Gradle by `build.sh`.
 LG TVs (webOS) and Samsung TVs (Tizen) get the same home screen as a web app: `web/`, packed by `webos/` and `tizen/`
 (see below).
 The website (freemytv.io) is in `docs/`: static HTML, CSS and JS, no build step. A push to `main` that changes it
@@ -24,9 +29,9 @@ before you do it, and let them do the taps on the TV.
   The Kalley 43G200 (`R3_GTV`) turns it back on at every start and boot-looped without its home screen, and a Huawei
   TV (HarmonyOS) stopped at its logo at the first restart after the switch (back only with a factory reset): the
   switch refuses on both (`HomeMode.BRICKS`, Huawei by brand or by `com.huawei.system.BuildEx.getOsBrand()`), and
-  the boot check or an update takes one already in Free My TV mode back to *Original*. On a phone (`HomeMode.phone`:
+  the boot check or an update takes one already in Liberte minha TV mode back to *Original*. On a phone (`HomeMode.phone`:
   telephony, no leanback, not in TV mode) the settings say the APK goes on the TV, and the switch refuses. On Amazon Fire TV (Fire OS: `HomeMode.AMAZON`), Amazon's launcher keeps the Home button (`priority=950`
-  on `CATEGORY_HOME`), so the switch refuses Free My TV mode while *Original* and the watchdog still run, and no
+  on `CATEGORY_HOME`), so the switch refuses Liberte minha TV mode while *Original* and the watchdog still run, and no
   `com.amazon.*` package is ever turned off (`mayTurnOff`).
 - Never turn off an app that saved a Wi-Fi network: Android deletes its networks and Original can't bring them
   back (`wifiOwners` in `HomeMode`). When the Wi-Fi service doesn't answer, the switch stops on Wi-Fi, and the boot
@@ -81,15 +86,15 @@ before you do it, and let them do the taps on the TV.
    the launcher flashing by during "Measuring…"), so TGuard can kill `ModeJob` there (log: `TGuardMemoryManagerKillHandler
    ... tguard-kill`, then `Scheduling restart of crashed service io.freemytv/.ModeJob`). The JobScheduler runs the job
    again by itself within a minute or two, and a benchmark that fails only logs now (it used to read as "Couldn't turn on
-   Free My TV: Read timed out", #277). Tell them: if the settings screen closes on the stock launcher, wait a minute or two, then press
-   Home; Free My TV opening confirms the switch. No `adb`/`appops` setting turns TGuard off (its content providers aren't
+   Liberte minha TV: Read timed out", #277). Tell them: if the settings screen closes on the stock launcher, wait a minute or two, then press
+   Home; Liberte minha TV opening confirms the switch. No `adb`/`appops` setting turns TGuard off (its content providers aren't
    exported to the shell user).
    Chromecast with Google TV (Android 14) refuses port 5555 even with USB debugging on: have them turn on *Wireless
    debugging*, pair with `adb pair <address:port> <code>` (the code is on the TV), then run `adb tcpip 5555` over that
    connection. It closes again at every restart (Wireless debugging turns itself off; `persist.adb.tcp.port` is
    refused), and until `adb tcpip 5555` runs again *Original*, the watchdog and the boot check can't reach ADB. Tell
    them before the switch (#195). Google TV's voice results for films and shows come from its home app (launcherx),
-   which Free My TV mode turns off; ADB can't turn off only its home activities, so tell them before they switch.
+   which Liberte minha TV mode turns off; ADB can't turn off only its home activities, so tell them before they switch.
    On a Mac, `adb connect` can fail with `No route to host` while the TV answers (`nc -z <IP> 5555` connects): macOS's
    Local Network privacy blocks the adb server that adb starts in the background. Start it from the same terminal
    instead (`adb kill-server; adb nodaemon server &`), or allow the terminal app under System Settings → Privacy &
@@ -97,10 +102,10 @@ before you do it, and let them do the taps on the TV.
 7. **Tell them what the switch does** before they make it: the home screen and screensaver change, a short list of
    promo apps is turned off (never uninstalled), and *Original* brings it all back. On TCL, the remote's Netflix,
    YouTube and Prime buttons keep working through a small accessibility service that only reads those buttons
-   (*Free My TV* → *Remote Buttons* picks what each opens); *Original* turns it off. On TCL's Android 11 there's no
-   service (the TV moved the volume twice with it), so there the buttons work only on Free My TV's home screen. On
-   Xiaomi TVs whose remote has no Home button, the same service makes its Mi button open Free My TV instead of PatchWall.
-8. **They switch on the TV:** *Free My TV* → *Home Screen* → *Free My TV*. The app uses the TV's own ADB on
+   (*Liberte minha TV* → *Remote Buttons* picks what each opens); *Original* turns it off. On TCL's Android 11 there's no
+   service (the TV moved the volume twice with it), so there the buttons work only on Liberte minha TV's home screen. On
+   Xiaomi TVs whose remote has no Home button, the same service makes its Mi button open Liberte minha TV instead of PatchWall.
+8. **They switch on the TV:** *Liberte minha TV* → *Home Screen* → *Liberte minha TV*. The app uses the TV's own ADB on
    127.0.0.1 with its own key, so the TV asks once more to allow debugging. Don't switch modes from the computer.
    Before they switch, run `adb disconnect <IP>:5555` (connect again for step 9): on Android 8 to 10 the TV can hand
    its answer to a computer that's still connected (#221).
@@ -114,7 +119,7 @@ before you do it, and let them do the taps on the TV.
 ## Installing it on an LG TV (webOS)
 
 On LG it's an app, installed through LG's Developer Mode, and it changes nothing else on the TV: LG's home screen
-stays, and Free My TV opens with a long press of a number key.
+stays, and Liberte minha TV opens with a long press of a number key.
 
 1. **Ask** for the TV's IP address and their city, if they didn't say. Tools: Python 3 and OpenSSH (`ssh`,
    `ssh-keygen`), already on macOS, Linux and Windows 10+.
@@ -131,9 +136,9 @@ stays, and Free My TV opens with a long press of a number key.
    changes the package's `resolution` to 1280x720 before copying it: LG's Full HD and HD sets draw apps at that size,
    and a 2019 HD one (webOS 3.9) showed a 1920x1080 app in its top-left two thirds (#402). `--1080p` installs it as
    built; `python3 webos/build.py --hd` builds it at 1280x720.
-6. **Tell them:** while Free My TV is open, holding a number key pins it to that key (on a remote without number keys,
+6. **Tell them:** while Liberte minha TV is open, holding a number key pins it to that key (on a remote without number keys,
    it's in LG's app list on the home screen). Developer Mode lasts about 40 days; *EXTEND* in that app renews it (if
-   it runs out, the TV removes developer apps, and installing again brings it back). `--uninstall` removes Free My TV.
+   it runs out, the TV removes developer apps, and installing again brings it back). `--uninstall` removes Liberte minha TV.
 7. **Empty shelf on webOS 3** (user agent Chrome 38): the app can't list the TV's apps there (`listLaunchPoints`
    denied, no `getAppLoadStatus`, and the remote control API answers `invalid origin` to file:// pages). Run
    `python3 webos/apps.py <IP>`: the TV asks them once to allow it, then build and install again. It writes
@@ -178,7 +183,7 @@ Developer Mode; Samsung's home screen stays. Two ways:
    `/opt/usr/apps/tmp`; on 2015 firmware `developerMode` on port 8001 can read 0 while SDB works, and SDB resets the
    connection when the TV's Host PC IP isn't this computer's current one); it only reports success
    when the TV says `install completed` (`cmd_ret:0` comes after failures too). `--uninstall` removes
-   it; some TVs' sdbd doesn't answer that, and then it's removed on the TV (Apps, Settings, Free My TV, Delete).
+   it; some TVs' sdbd doesn't answer that, and then it's removed on the TV (Apps, Settings, Liberte minha TV, Delete).
    A bare `install failed[118]` (Tizen 2.4 gives no reason) can be a copy left by an earlier failed install, signed
    with another certificate and not shown on the TV: `--uninstall`, then install again (2016 KU6640 and KU6400, #349;
    the KU6400 took the Tizen certificate after that, while a Samsung one, Public with its DUID, kept getting 118). Still
@@ -194,7 +199,7 @@ Developer Mode; Samsung's home screen stays. Two ways:
    (`ws://<IP>:7011/devtools/page/1`; `0 kill FreeMyTVio` first to launch it again), and `0 applist` lists its web
    apps (not the native ones, below).
 8. **Tell them:** *Autorun Last App* in the TV's settings (under Start Screen Options; where it is changes by year)
-   makes the TV turn on into Free My TV on a 2017 set; 2019 and 2020 sets don't reopen Developer Mode apps with it
+   makes the TV turn on into Liberte minha TV on a 2017 set; 2019 and 2020 sets don't reopen Developer Mode apps with it
    (#356), so there they move it to the first place in the Home bar. A Tizen Web Service declared `on-boot` that
    reopens it when the TV comes on worked on a 2019 RU7099 and a 2020 Q80T (a fork's opt-in build, #356), but only
    signed with a Partner-level distributor certificate bound to that TV's DUID, which the person requests from Samsung
@@ -204,28 +209,25 @@ Developer Mode; Samsung's home screen stays. Two ways:
 
 ## Releases
 
-Every release carries `FreeMyTV.apk` for Google TV and Android TV, built with `./build.sh --generic` (no
-config.properties: no key, and `Place` takes the city, the currency and the region from the TV's time zone through
-`app/assets/zones.json`) and signed with the project's release key, which lives only on the owner's Mac
-(`~/.freemytv/release.keystore`, its password in the login Keychain as `freemytv-release-apk`):
-`FREEMYTV_KEYSTORE=~/.freemytv/release.keystore FREEMYTV_KEYSTORE_PASS="$(security find-generic-password -s
-freemytv-release-apk -w)" ./build.sh --generic`. Sign every release with that key: Android refuses an update signed
-by another, and people who built their own must uninstall it before installing the release.
+Liberte minha TV's releases are at https://github.com/matheusbcbg/liberte-minha-tv/releases, for Google TV and Android
+TV only (the LG and Samsung builds below are the upstream project's and aren't released here). Every release carries
+`LiberteMinhaTV.apk`, built with `./build.sh --generic` (no config.properties: no key, and `Place` takes the city, the
+currency and the region from the TV's time zone through `app/assets/zones.json`) and signed with the release key,
+`freemytv.keystore` (alias `freemytv`), which lives only on the owner's Mac: in the project folder (git-ignored) and a
+copy in `~/free-my-tv-seguranca/`. It's the key the owner's own TV was installed with, so his TV takes the releases
+without uninstalling:
+`FREEMYTV_KEYSTORE=freemytv.keystore FREEMYTV_KEYSTORE_PASS=freemytv ./build.sh --generic`, then
+`cp FreeMyTV.apk LiberteMinhaTV.apk`. Never commit or upload the keystore: whoever has it can sign updates every TV
+accepts. If it's lost, no TV can take an update until it's uninstalled and the new key's APK installed.
 
-TizenBrew Installer takes the first `.wgt` of the latest GitHub release, so every release carries
-`FreeMyTV-tizen.wgt`: built with `--generic` (no config.properties: no key, the city from the time zone) and signed
-with a Tizen certificate (`--sign`), which 2017-2022 TVs install as it is; on 2023+ TVs the installer signs it again
-with the person's Samsung certificate. Sign every release with the same author certificate: older TVs refuse an
-update signed by another. `python3 webos/build.py --generic` makes the LG `.ipk` that goes along.
-The release's `FreeMyTV.apk` updates itself (`Updates`: a weekly job, and Home Settings > Updates): it reads
-`releases/latest`, so keep the asset named `FreeMyTV.apk`, sign it with the project's key, and raise `versionName`
-(compared number by number with the tag, `v1.3.0` > `1.2`) and `versionCode` (Android refuses a lower one). Before
-uploading, `apksigner verify --print-certs FreeMyTV.apk` must show the release certificate
-(`b85d4ff69cb42bfb1837ee0279506363954470b16402a4165f2f095886d19204`, `Updates.RELEASE_CERT`): TVs refuse any other. Then
-`python3 tools/homebrew_repo.py <the uploaded FreeMyTV-webos.ipk>` writes `docs/webos/apps.json`, the webOS Homebrew
-Channel repository (https://freemytv.io/webos/apps.json, with that file's SHA-256), and a copy of the `.ipk` beside it:
-commit both with the release. The Channel installs from freemytv.io, not from the GitHub release, because GitHub's
-download redirect carries more headers than the TV's Node accepts ("Parse Error: Header overflow").
+The release's APK updates itself (`Updates`: a weekly job, and Ajustes > Atualizações): it reads this repository's
+`releases/latest` (`Updates.REPO`), so keep the asset named `LiberteMinhaTV.apk`, and raise `versionName` (compared
+number by number with the tag, `v2.1` > `2.0`) and `versionCode` (Android refuses a lower one) in
+`app/AndroidManifest.xml`. Before uploading, `apksigner verify --print-certs LiberteMinhaTV.apk` must show the release
+certificate (`d4a6e7b896c7a822f356095f9f0e2b59fe4c98a69b51aeeb3a26f4bb7ecd6c0e`, `Updates.RELEASE_CERT`): TVs refuse
+any other. Publish with `gh release create v<version> LiberteMinhaTV.apk --repo matheusbcbg/liberte-minha-tv`.
+A build made on a computer (not `--generic`) only says a new version is out, and only when asked; installing the
+release's APK over it once (same key: `adb install -r`, nothing lost) makes it update itself from then on.
 
 ## Adapting it to another TV
 
@@ -253,11 +255,11 @@ Then, in the code:
   *Original* once and confirm everything returned.
 
 LG and Samsung: the web app above. Other TVs that don't run Google TV or Android TV: the way is a Google TV streamer on
-HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set Free My TV up on the streamer.
+HDMI (Chromecast with Google TV, Google TV Streamer, onn 4K, NVIDIA Shield). Set Liberte minha TV up on the streamer.
 The onn 4K Streaming Box (Amlogic S905Y4, Google TV 14 tested) ships no promo apps of its own, so `DEBLOAT` has no onn
 entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 there, as the app needs.
 
-**Uninstalled while in Free My TV mode?** The apps it turned off stay off. Bring them back with
+**Uninstalled while in Liberte minha TV mode?** The apps it turned off stay off. Bring them back with
 `adb shell pm enable <package>` (the `DEBLOAT` list and the stock home screen), then
 `adb shell cmd package set-home-activity <stock home activity>` and
 `adb shell settings put secure screensaver_components <stock screensaver>`. On an HY300 with JmLauncher, also
@@ -283,6 +285,12 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   stayed on screen over it) should come up.
 - The home screen is drawn by hand on one Canvas (`HomeView`); the glass and the sky are AGSL shaders (`Shaders`,
   Android 13+, with a fallback for 8 to 12). Keep it at 60 fps: no allocations in `onDraw`, no work on the UI thread.
+- The settings are a page stack drawn on one Canvas too (`SetView` and the other `Set*` files; `SetPages` lists the
+  page ids, `am start -n io.freemytv/.SettingsActivity --es page <id>` opens one). `SettingsActivity` is only the
+  host, and both run in `:home`: every entry point of the new screen is guarded, and a caught fault swaps in the
+  earlier view (`SettingsActivity.SettingsView`, also `--ez classic true`), which opens by itself after a crash or two
+  faults within a day (`SetFaults`). So a setting is added in both, and `bash tools/test-settings.sh` says when the
+  new pages lack something the classic view does.
 - Some TVs draw their UI at 1280×720 on a 1080p panel (TCL's 1 GB models: `ro.surface_flinger.max_graphics_width`
   and `_height`, `ro.config.low_ram`). There every pixel and every MB counts: `Backdrop` builds its images at the UI's
   size (and the picks use TMDB's w1280), and the shelf logos have a copy at the resting size and one at the focused
@@ -311,7 +319,9 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   *Original* revokes it with `pm revoke`. Watch Next pictures load only from the TV (`content://`, `android.resource://`),
   never from the network. The app talks only to TMDB, Open-Meteo, Binance, Watchmode (with a `watchmode_key`), your Plex
   server (with a `plex_url`), your Immich server (with `immich_server` and its key), Trakt (with a `trakt_client_id`,
-  once the person signs in on the TV) and GitHub's releases (Updates): new sources (such as Stremio) must not add
+  once the person signs in on the TV) and GitHub's releases (Updates), and Claro tv+'s public catalogue search
+  (`ClaroCatalog`, clarotvmais.com.br: only a title's name, to tell Claro's included titles from its rentals and from
+  TMDB's false listings; the owner allowed it, 2026-11): new sources (such as Stremio) must not add
   network calls without the owner's OK.
 - Trakt (`Trakt`, Google TV only) needs the person's own API app: `trakt_client_id` (the Client ID only: device code
   with PKCE, so no secret is built in). Until they sign in on the Picks screen, nothing talks to `api.trakt.tv`. The
@@ -357,7 +367,7 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
 - Settings rows that need something this TV lacks stay, dimmed as *Unavailable*: `SettingsActivity.need` names what a
   row needs, `Capabilities.missing` says why it's missing (once per screen), and OK on the row shows it in a toast.
 - The remote's app buttons (`RemoteKeys`, `RemoteKeyService`) use each brand's key codes: they run only on TCL,
-  Vestel, KTC (NextStar), Sony, Xiaomi and Hisense TVs, the JVC G24, Formovie projectors and the Google TV Streamer, the service is on only in Free My TV mode, and *Original* takes it out of the enabled accessibility
+  Vestel, KTC (NextStar), Sony, Xiaomi and Hisense TVs, the JVC G24, Formovie projectors and the Google TV Streamer, the service is on only in Liberte minha TV mode, and *Original* takes it out of the enabled accessibility
   services. The system waits for the service on every key, so it lives alone in the `:keys` process: what it reads is
   in `remote-keys.txt` (`Prefs.keyApp`), never in SharedPreferences, and `onKeyEvent` does no heavy work.
   The service is also off while every button is *Nothing*, and always on TCL's Android 11 (`RemoteKeys.FILTER_SAFE`):
@@ -387,7 +397,7 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   TV, and PatchWall's All Apps opens the disabled `tvlauncher`. `Prefs.KEY_MI` opens our home screen by default
   ("Xiaomi default", empty, leaves it to PatchWall). Leave PatchWall on: it also shows the TV's input picker.
   Xiaomi TVs with a Home button (MiTV-MOOR0, MediaTek, Android TV 11 tested) send `KEYCODE_BUTTON_3` for YouTube, a
-  global key for the stock home screen (`launcherx`) that Free My TV turns off, and `KEYCODE_BUTTON_5` for PatchWall,
+  global key for the stock home screen (`launcherx`) that Liberte minha TV turns off, and `KEYCODE_BUTTON_5` for PatchWall,
   a global key for the same `partnercustomizer` receiver: both are ours (`Prefs.KEY_XIAOMI_PATCHWALL` is left to the
   TV until an app is picked). Netflix (`BUTTON_6`) stays with the system. Their remote sends one press as a burst of 5
   to 8: `RemoteKeys` opens the app once (Xiaomi only).
@@ -402,7 +412,7 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   app is picked. Its other buttons' codes weren't matched to the remote, so none of them is ours.
   Hisense (Q6N, MediaTek, Android TV 12 tested) sends `295` for Prime Video, `KEYCODE_BUTTON_3` for YouTube,
   `KEYCODE_ALL_APPS` for its All Apps (3×3) button, `KEYCODE_NOTIFICATION` for the gear and `KEYCODE_PROFILE_SWITCH`
-  for the profile button, all global keys for Google TV's home app (`launcherx`), which Free My TV mode turns off, and
+  for the profile button, all global keys for Google TV's home app (`launcherx`), which Liberte minha TV mode turns off, and
   `607` for Disney+: without the service they do nothing. Netflix (`KEYCODE_STEM_1`) stays with the system. The gear
   opens TV Settings and All Apps opens our own sheet (`Prefs.ALL_APPS`, `HomeActivity.EXTRA_ALL_APPS`); the profile
   button has nothing to open without `launcherx`. Hisense keeps only error logs: `adb shell setprop log.tag.FreeMyTV I`
@@ -419,12 +429,12 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   `Vendor_18d1_Product_9451.kl`. YouTube and the star go to launcherx; Netflix goes to chromecastservice. The model
   check excludes Chromecasts and other Google devices. YouTube opens YouTube initially; Netflix and the star stay
   with Google until an app is picked. An empty choice (*Google default*) passes the key through, so YouTube and the
-  star may do nothing with launcherx off. All three can also open Free My TV's All Apps; there is no separate
+  star may do nothing with launcherx off. All three can also open Liberte minha TV's All Apps; there is no separate
   long-press mapping. Home, Back, voice, power and volume stay with the system.
   The JVC G24 (Skyworth, Android 11 tested; `RemoteKeys.JVC_SKYWORTH`, by model name and Android version) sends its
   Inputs button as `KEYCODE_BUTTON_16` with scan code 383 (Bluetooth) or 79 (IR), or as `BUTTON_14` with 240, and its
   gear as `KEYCODE_NOTIFICATION` (`SkyworthRemote`; `BUTTON_16` with other scan codes is its app buttons, which stay
-  with the system). In Free My TV mode the Inputs button's vendor receiver crashes on Google TV's disabled provider and
+  with the system). In Liberte minha TV mode the Inputs button's vendor receiver crashes on Google TV's disabled provider and
   the gear asks for Google TV's disabled panel, so Inputs opens `com.smartdevice.dailyshortcut` directly
   (`Prefs.TV_SHORTCUTS`) and the gear our own small Quick Settings panel (`QuickSettingsActivity`). Leaving Google TV's
   home app on is no way around it there: its Home priority wins over ours. `tools/test-remote.sh` (run by
@@ -459,7 +469,7 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   default): turning it on allows it through ADB (`HomeMode.nowPlayingAccess`, `cmd notification allow_listener`; the
   `enabled_notification_listeners` setting grants nothing since Android 8) and proves it took (`Capabilities.LISTENER`,
   else the row shows Unavailable); turning it off, *Original* and the watchdog's revert take it back. The switch to
-  Free My TV mode allows nothing. `HomeMode` sets it, under the `RUN` lock, to what the widget says at that moment (so
+  Liberte minha TV mode allows nothing. `HomeMode` sets it, under the `RUN` lock, to what the widget says at that moment (so
   quick toggles and a revert can't cross), `verifyNow` does the same after a boot or an update, and a screen that finds
   it on but not allowed asks once.
   It unbinds itself as soon as it connects (the permission is all it's for), and the home screen and the screensaver
@@ -506,7 +516,7 @@ entries; its system pieces are in `PROTECTED`. USB debugging opens ADB on 5555 t
   (`service check launcherapps`: not found), so `LauncherApps.registerCallback` throws a NullPointerException and
   `HomeView` now catches it: the shelf doesn't refresh by itself after an install there, only when the home screen
   opens again. Its stock home is `com.htc.magcubicos`, which also holds the Wi-Fi, Bluetooth and projection settings:
-  in Free My TV mode nothing answers `android.settings.SETTINGS`, so TV Settings falls back to Android TV's own
+  in Liberte minha TV mode nothing answers `android.settings.SETTINGS`, so TV Settings falls back to Android TV's own
   `com.android.tv.settings/.MainSettings` by name (`HomeApps.open`), with Wi-Fi and Bluetooth; keystone and projection
   mode stay in magcubicos, out of reach while it's off (#379). Its own "ADB debug" switch turns on Wireless debugging,
   TLS-only on 5555, with no pairing screen in its settings: `com.android.tv.settings` (Activity Launcher, from

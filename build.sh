@@ -53,7 +53,7 @@ if $GENERIC; then
 else
   LAT="$(number latitude 40.7128)"
   LON="$(number longitude -74.0060)"
-  REGION="$(prop tmdb_region US)"
+  REGION="$(prop tmdb_region BR)"
   CURRENCY="$(prop currency USD)"
 fi
 ASSIST=false; [ "$(prop disable_assistant false)" = "true" ] && ASSIST=true

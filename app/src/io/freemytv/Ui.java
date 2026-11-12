@@ -38,6 +38,9 @@ import java.util.function.Supplier;
  * similar weight.
  */
 final class Ui {
+    /** This build's name: the full one for titles and the launcher, the short one inside sentences and choices. */
+    static final String APP_NAME = "Liberte minha TV - por Bc", APP_SHORT = "Liberte minha TV";
+
     private Ui() {}
 
     /**
@@ -133,7 +136,7 @@ final class Ui {
     static String tr(String english) {
         String s = catalogue.get(english);
         if (s != null) return s;
-        if (english.indexOf('|') < 0) return english;
+        if (english.indexOf('|') < 0) return english.indexOf(OLD_NAME) < 0 ? english : renamed(english);
         String plain = CONTEXT_FREE.get(english);
         if (plain == null) {
             plain = english.substring(english.indexOf('|') + 1);
@@ -141,6 +144,19 @@ final class Ui {
         }
         s = catalogue.get(plain);
         return s != null ? s : plain;
+    }
+
+    /** The app's former name, still inside older English keys: never shown, whatever the language. */
+    private static final String OLD_NAME = "Free My TV";
+
+    /** An English key shown as it is (no catalogue entry), with the app's current name. Cached: no work per frame. */
+    private static String renamed(String english) {
+        String s = CONTEXT_FREE.get(english);
+        if (s == null) {
+            s = english.replace(OLD_NAME, APP_SHORT);
+            CONTEXT_FREE.put(english, s);
+        }
+        return s;
     }
 
     /** A pattern with named placeholders, filled from name/value pairs: trf("{n} min ago", "n", 12). */
@@ -315,7 +331,8 @@ final class Ui {
             HashMap<String, String> map = new HashMap<>(o.length() * 2);
             for (java.util.Iterator<String> keys = o.keys(); keys.hasNext(); ) {
                 String key = keys.next();
-                map.put(key, o.getString(key));
+                String value = o.getString(key);
+                map.put(key, value.indexOf(OLD_NAME) < 0 ? value : value.replace(OLD_NAME, APP_SHORT));
             }
             return map;
         } catch (Exception e) {

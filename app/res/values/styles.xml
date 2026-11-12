@@ -25,4 +25,21 @@
         <item name="android:backgroundDimEnabled">false</item>
         <item name="android:windowNoTitle">true</item>
     </style>
+
+    <!-- Explorar is always dark: the same colour is already in the window, so opening it never flashes light. -->
+    <color name="explore_background">#0B0B0D</color>
+    <style name="FreeMyTV.Explore" parent="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@color/explore_background</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowShowWallpaper">false</item>
+        <item name="android:colorBackgroundCacheHint">@null</item>
+    </style>
+    <!-- Settings (Ajustes) are dark like the new home screen: the window starts in that colour, never the light one. -->
+    <color name="settings_background">#0B0B0D</color>
+    <style name="FreeMyTV.Settings" parent="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@color/settings_background</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowShowWallpaper">false</item>
+        <item name="android:colorBackgroundCacheHint">@null</item>
+    </style>
 </resources>

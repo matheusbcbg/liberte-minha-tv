@@ -62,6 +62,8 @@ final class HomeApps {
     static final int RECENTS = 8;
     /** A Home Assistant entity in the drawer (HomeAssistant): OK calls its service, nothing opens. */
     static final int HOME_ASSISTANT = 9;
+    /** Explorar (ExploreActivity, in the :explore process); `uri` is its target page or title, or null for Início. */
+    static final int EXPLORE = 10;
     /** Image size of each card (16:9; on screen it shows up to ~330 px wide). */
     static final int TILE_W = 384, TILE_H = 216;
 
@@ -78,6 +80,7 @@ final class HomeApps {
         float logoInk;      // fraction of the logo with ink (thin logos are drawn larger, with the same "weight")
         float logoScale = 1; // size tweak by eye (compact logos need more)
         boolean connected = true;
+        int brand;          // the brand color from SHELF (opaque ARGB), 0 = none
         HomeAssistant.Control control;   // HOME_ASSISTANT: the entity it shows and calls
 
         void setTile(Bitmap b) {
@@ -202,6 +205,7 @@ final class HomeApps {
             } else {
                 it.key = d[0];
                 it.label = d[1];
+                it.brand = brandOf(d);
                 it.logo = shelfLogo(c, d[0], d[2], d[4], extract);
                 if (it.logo == null) it.setTile(appTile(c, d[0], d[2], 0xFF000000 | Integer.parseInt(d[3], 16)));
                 if (it.logo != null) it.logoInk = ink(it.logo);
@@ -211,6 +215,21 @@ final class HomeApps {
             items.add(it);
         }
         return items;
+    }
+
+    /** A SHELF row's brand color, opaque; 0 when the row has none that parses. */
+    private static int brandOf(String[] d) {
+        try {
+            return 0xFF000000 | Integer.parseInt(d[3], 16);
+        } catch (RuntimeException e) {
+            return 0;
+        }
+    }
+
+    /** The name SHELF gives the app ("Prime Video"), or null for an app it doesn't list. */
+    static String shelfName(String pkg) {
+        String[] d = known(pkg);
+        return d == null ? null : d[1];
     }
 
     private static String[] known(String pkg) {
@@ -260,13 +279,13 @@ final class HomeApps {
 
     // MARK: - Top buttons (the round ones at the top right)
 
-    static final String TOP_LIVE = "live", TOP_INPUTS = "inputs", TOP_SETTINGS = "settings", TOP_RECENTS = "recents", TOP_STORE = "store";
-    static final List<String> TOP_DEFAULT = Collections.unmodifiableList(java.util.Arrays.asList(TOP_LIVE, TOP_INPUTS, TOP_SETTINGS));
-    /** What can be a top button: the default three, and Recent Apps and App Store for whoever adds them. */
-    static final List<String> TOP_ALL = Collections.unmodifiableList(java.util.Arrays.asList(TOP_LIVE, TOP_INPUTS, TOP_SETTINGS, TOP_RECENTS, TOP_STORE));
+    static final String TOP_EXPLORE = "explore", TOP_LIVE = "live", TOP_INPUTS = "inputs", TOP_SETTINGS = "settings", TOP_RECENTS = "recents", TOP_STORE = "store";
+    static final List<String> TOP_DEFAULT = Collections.unmodifiableList(java.util.Arrays.asList(TOP_EXPLORE, TOP_LIVE, TOP_INPUTS, TOP_SETTINGS));
+    /** What can be a top button: the default four, and Recent Apps and App Store for whoever adds them. */
+    static final List<String> TOP_ALL = Collections.unmodifiableList(java.util.Arrays.asList(TOP_EXPLORE, TOP_LIVE, TOP_INPUTS, TOP_SETTINGS, TOP_RECENTS, TOP_STORE));
     static final int MAX_TOP = TOP_ALL.size();
 
-    /** The keys of the top buttons, in order (Settings > Top Buttons; by default Live TV, HDMI Inputs, Settings). */
+    /** The keys of the top buttons, in order (Settings > Top Buttons; by default Explore, Live TV, HDMI Inputs, Settings). */
     static List<String> topButtonKeys() {
         List<String> saved = Prefs.topButtons();
         if (saved == null) return TOP_DEFAULT;
@@ -303,6 +322,7 @@ final class HomeApps {
 
     private static Item topButton(String key) {
         switch (key) {
+            case TOP_EXPLORE: return explore(null);
             case TOP_LIVE: return action(LIVE_TV, TOP_LIVE, Ui.tr("light|Live TV"), "live_tv");
             case TOP_INPUTS: return action(INPUTS, TOP_INPUTS, Ui.tr("HDMI Inputs"), "hdmi");
             case TOP_RECENTS: return action(RECENTS, TOP_RECENTS, Ui.tr("Recent Apps"), "recents");
@@ -388,6 +408,13 @@ final class HomeApps {
         Item it = shortcut(DEVICE, key, label, symbol);
         it.intent = intent;
         items.add(it);
+    }
+
+    /** Explorar; target as ExploreActivity.intentFor takes it ("page:movies", "movie/123"), or null for Início. */
+    static Item explore(String target) {
+        Item it = action(EXPLORE, TOP_EXPLORE, Ui.tr("Explore"), "sparkles");
+        it.uri = target;
+        return it;
     }
 
     /** A streaming service's app (the "Watch" button of the featured pick). */
@@ -599,7 +626,57 @@ final class HomeApps {
         synchronized (HomeApps.class) {
             TILES.keySet().removeIf(k -> k.contains(".") && !seen.contains(k));
         }
-        items.add(special(c, SETTINGS, "freemytv-settings", "Free My TV", "sparkles"));
+        items.add(special(c, SETTINGS, "freemytv-settings", Ui.APP_SHORT, "sparkles"));
+        return items;
+    }
+
+    /**
+     * Every app Início can show (SPEC2 §3.7), A-Z: each launchable app but the live TV apps, this one and HIDDEN, keyed
+     * by its package, with its 16:9 card (the same bitmaps All Apps uses) and, for the apps in SHELF, the brand color
+     * and the colored logo the classic shelf gets from shelf(c, true). Slow (it may lift a logo from the TV art): its
+     * loader thread only.
+     */
+    static List<Item> allApps(Context c) {
+        PackageManager pm = c.getPackageManager();
+        Set<String> skip = new HashSet<>(java.util.Arrays.asList(LIVE_TV_APPS));
+        skip.add(c.getPackageName());
+        skip.addAll(HIDDEN);
+        List<Item> items = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (String[] app : launchable(c)) {
+            String pkg = app[0];
+            if (skip.contains(pkg) || !seen.add(pkg)) continue;
+            Item it = new Item();
+            it.kind = APP;
+            it.pkg = pkg;
+            it.key = pkg;
+            it.label = app[1];
+            try {
+                it.setTile(appTile(c, null, pkg, 0));
+            } catch (RuntimeException e) {
+                it.setTile(null);   // a broken banner or icon: Início draws the label's tile instead
+            }
+            String[] d = known(pkg);
+            if (d != null) {
+                it.label = d[1];
+                it.brand = brandOf(d);
+                try {
+                    it.logo = shelfLogo(c, d[0], d[2], d[4], true);
+                    if (it.logo != null) it.logoInk = ink(it.logo);
+                    it.logoDark = ownLogoCached(c, d[0] + "-dark");
+                    it.logoScale = Float.parseFloat(d[5]);
+                } catch (RuntimeException e) {
+                    it.logo = null;
+                }
+            }
+            items.add(it);
+        }
+        final java.text.Collator collator = java.text.Collator.getInstance(Ui.locale());
+        collator.setStrength(java.text.Collator.PRIMARY);
+        Collections.sort(items, (a, b) -> collator.compare(a.label, b.label));
+        synchronized (HomeApps.class) {
+            TILES.keySet().removeIf(k -> k.contains(".") && !seen.contains(k));
+        }
         return items;
     }
 
@@ -641,6 +718,9 @@ final class HomeApps {
                 break;
             case SETTINGS:
                 intent = new Intent().setComponent(new ComponentName(a, SettingsActivity.class));
+                break;
+            case EXPLORE:
+                intent = ExploreActivity.intentFor(a, it.uri);
                 break;
             case ANDROID_SETTINGS:
                 intent = new Intent(Settings.ACTION_SETTINGS);

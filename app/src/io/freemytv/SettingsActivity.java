@@ -13,6 +13,7 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.RectF;
+import android.graphics.drawable.ColorDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -25,17 +26,24 @@ import android.view.Choreographer;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityNodeProvider;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.Toast;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -44,14 +52,37 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * Free My TV's settings (the app's icon, "All Apps", or the gear on the home screen), in the style of Apple TV's
- * settings: the big symbol and title on the left, the list on the right with the focused row in white. "Home screen"
- * opens the Free My TV / Original choice (with a check on the current one); the switch runs in the main process
- * (HomeMode) and this screen only asks for it and follows the state file.
+ * The app's settings (the app's icon, "All Apps", or the gear on the home screen). This activity is only the host: the
+ * screen itself is {@link SetView} (the Set* files: a page stack drawn on one Canvas), and the earlier
+ * {@link SettingsView}, below, stays as the fallback. It takes over, in this same process, when the new screen is
+ * asked not to show ({@code --ez classic true}), failed lately ({@link SetFaults}) or reports a fault while showing
+ * ({@link #useClassic}): both run in :home, where an uncaught exception counts for the home screen's watchdog.
+ * The switch itself runs in the main process (HomeMode); either screen only asks for it and follows the state file.
  */
 public class SettingsActivity extends Activity {
-    private SettingsView view;
+    /** {@code am start -n io.freemytv/.SettingsActivity --es page <id>}: the root, then that page (SetPages.IDS). */
+    static final String EXTRA_PAGE = "page";
+    /** Away (stopped) for longer than this, the next start shows the root again. */
+    private static final long RESET_MS = 10 * 60_000L;
+
+    /** What the activity needs of a settings screen: SetView, or the classic view through {@link Legacy}. */
+    interface Screen {
+        View view();
+        void resume();
+        void pause();
+        void stop();
+        boolean onKey(KeyEvent e);
+    }
+
+    private Screen screen;       // null only on Fire TV's way out of onCreate
+    private boolean classic;     // the screen is the classic view
+    private boolean resumed;
+    private FrameLayout root;    // the screen's view (first) and the text field over it
+    private EditText field;      // a text sheet's field (a city, a typed key); GONE the rest of the time
     private DreamView preview;   // "Screensaver": the screensaver right here, without changing the system setting
+    private String watchdogWas = "";   // Watchdog.screen as the home screen left it, put back when Settings leaves
+    private long stoppedAt;      // elapsedRealtime of onStop, 0 while started
+    private boolean pageAsked;   // a new intent named its page: the next start doesn't go back to the root
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -61,8 +92,33 @@ public class SettingsActivity extends Activity {
         Ui.init(this);
         SleepTimer.listen(this);   // :home may start here, from the launcher icon
         SleepTimer.check(this);
-        view = new SettingsView(this);
-        setContentView(view);
+        root = new FrameLayout(this);
+        field = new EditText(this);
+        field.setSaveEnabled(false);   // a typed key never goes into the saved state
+        field.setVisibility(View.GONE);
+        root.addView(field, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        // recent() also reads the mark a Settings that died while showing left behind, so it runs either way.
+        boolean failedLately = SetFaults.recent(this);
+        if (!failedLately && !flag(getIntent(), "classic")) {
+            try {
+                screen = new SetView(this, text(getIntent(), EXTRA_PAGE));
+                // The same colour as the first frame's, whatever the theme (the manifest's is the dark one).
+                getWindow().setBackgroundDrawable(new ColorDrawable(SetTheme.bg(SetTheme.dark(this))));
+            } catch (RuntimeException | OutOfMemoryError e) {
+                AppLog.w("settings: create: " + e.getClass().getSimpleName());   // never its message (a key, a URL)
+                SetFaults.record(this);
+                screen = null;
+            }
+        }
+        if (screen == null) {
+            classic = true;
+            screen = new Legacy(new SettingsView(this));
+        }
+        root.addView(screen.view(), 0, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        setContentView(root);
+        screen.view().requestFocus();
     }
 
     /**
@@ -71,7 +127,7 @@ public class SettingsActivity extends Activity {
      */
     private boolean openFireHome(Intent intent) {
         if (!HomeMode.AMAZON || intent == null || !(intent.hasCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
-                || intent.hasCategory(Intent.CATEGORY_LAUNCHER)) || intent.getBooleanExtra("screensaver", false)) {
+                || intent.hasCategory(Intent.CATEGORY_LAUNCHER)) || flag(intent, "screensaver")) {
             return false;
         }
         startActivity(new Intent(this, FireHomeActivity.class));
@@ -79,14 +135,53 @@ public class SettingsActivity extends Activity {
         return true;
     }
 
+    /** An extra of an intent any app may send: one that can't be read counts as absent. */
+    private static boolean flag(Intent intent, String name) {
+        try {
+            return intent != null && intent.getBooleanExtra(name, false);
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    private static String text(Intent intent, String name) {
+        try {
+            return intent == null ? null : intent.getStringExtra(name);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    @Override protected void onStart() {
+        super.onStart();
+        long away = stoppedAt == 0 ? 0 : SystemClock.elapsedRealtime() - stoppedAt;
+        boolean asked = pageAsked;
+        stoppedAt = 0;
+        pageAsked = false;
+        if (away <= RESET_MS || asked || !(screen instanceof SetView)) return;
+        try {
+            // Back after a long while: the root, not a page left open yesterday. A switch still running shows itself.
+            SetView v = (SetView) screen;
+            v.open(v.state().busy() ? "mode" : "root");
+        } catch (RuntimeException e) {
+            fault("start", e);
+        }
+    }
+
     @Override protected void onResume() {
         super.onResume();
-        if (view == null) return;
-        view.resume();
+        if (screen == null) return;
+        resumed = true;
+        // A crash while Settings is in front isn't the new home screen's: the watchdog blocks that one only for
+        // "start" (Watchdog.install), and it still counts the crash.
+        if (!"settings".equals(Watchdog.screen)) watchdogWas = Watchdog.screen;
+        Watchdog.screen = "settings";
+        resumeScreen();
+        importPhotos();
         // From ADB: am start -n io.freemytv/.SettingsActivity --ez screensaver true (straight to the preview).
-        if (preview == null && getIntent().getBooleanExtra("screensaver", false)) {
+        if (preview == null && flag(getIntent(), "screensaver")) {
             getIntent().removeExtra("screensaver");
-            view.pause();
+            pauseScreen();
             showPreview();
         }
     }
@@ -95,16 +190,44 @@ public class SettingsActivity extends Activity {
         super.onNewIntent(intent);
         if (openFireHome(intent)) return;
         setIntent(intent);
+        if (screen == null || classic) return;
+        if (flag(intent, "classic")) {   // the way out by hand: no fault is recorded
+            swapToClassic();
+            return;
+        }
+        // Without a page (the icon again, the benchmark's bounces during a switch) whatever shows stays.
+        String page = text(intent, EXTRA_PAGE);
+        if (page == null || !(screen instanceof SetView)) return;
+        try {
+            ((SetView) screen).open(page);
+            pageAsked = true;
+        } catch (RuntimeException e) {
+            fault("intent", e);
+        }
     }
 
     @Override protected void onPause() {
-        closePreview();     // before pausing the view: closing the preview resumes it (view.resume)
-        if (view != null) view.pause();
+        closePreview();     // before pausing the screen: closing the preview resumes it (screen.resume)
+        if (screen != null) pauseScreen();
+        resumed = false;
+        if ("settings".equals(Watchdog.screen)) Watchdog.screen = watchdogWas;
         super.onPause();
     }
 
+    @Override protected void onStop() {
+        stoppedAt = SystemClock.elapsedRealtime();
+        super.onStop();
+    }
+
     @Override protected void onDestroy() {
-        if (view != null) view.stopKeyPage();
+        if (screen != null) {
+            try {
+                screen.stop();
+            } catch (RuntimeException e) {
+                if (classic) throw e;
+                AppLog.w("settings: stop: " + e.getClass().getSimpleName());
+            }
+        }
         super.onDestroy();
     }
 
@@ -130,10 +253,25 @@ public class SettingsActivity extends Activity {
                     return super.dispatchKeyEvent(event);
             }
         }
-        if (view.onKey(event)) return true;
-        return super.dispatchKeyEvent(event);
+        if (screen == null) return super.dispatchKeyEvent(event);   // Fire TV: onCreate left before any view
+        boolean taken;
+        try {
+            taken = screen.onKey(event);
+        } catch (RuntimeException e) {
+            if (classic) throw e;
+            fault("key", e);
+            return true;
+        }
+        // What the screen leaves goes on to the focused view: a text sheet's typing keys reach the field this way.
+        return taken || super.dispatchKeyEvent(event);
     }
 
+    /** The overlay field of the text sheets (SetSheet places, styles and shows it); GONE unless one shows. */
+    EditText textField() {
+        return field;
+    }
+
+    /** The caller pauses its screen first (SetHost.preview, the classic row). */
     void showPreview() {
         preview = new DreamView(this);
         setContentView(preview);
@@ -144,8 +282,262 @@ public class SettingsActivity extends Activity {
         if (preview == null) return;
         preview.stop();
         preview = null;
-        setContentView(view);
-        view.resume();
+        setContentView(root);   // the screen and the text field, not the bare view
+        screen.view().requestFocus();
+        resumeScreen();
+    }
+
+    /**
+     * The new screen caught a fault (SetView.fault posts this, on the main thread): the classic view takes its place
+     * now, in the same activity, and the fault is recorded: the second within 24 h keeps the classic view for a day.
+     */
+    void useClassic(String tag) {
+        if (classic || screen == null) return;
+        AppLog.w("settings: classic view after a fault in " + tag);
+        SetFaults.record(this);
+        swapToClassic();
+        // A stock toast only here: the screen that draws the in-app one is the one that failed.
+        Toast.makeText(this, Ui.tr("Settings ran into a problem and went back to the old look."), Toast.LENGTH_LONG).show();
+    }
+
+    private void swapToClassic() {
+        if (classic || screen == null) return;
+        Screen old = screen;
+        classic = true;
+        try {
+            if (resumed && preview == null) old.pause();
+        } catch (RuntimeException e) {
+            AppLog.w("settings: pause: " + e.getClass().getSimpleName());
+        }
+        try {
+            old.stop();
+        } catch (RuntimeException e) {
+            AppLog.w("settings: stop: " + e.getClass().getSimpleName());
+        }
+        SetFaults.closed(this);   // the fault was caught: the mark of an open screen mustn't read as a crash next time
+        hideField();
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);   // a key page's, if stop() never got there
+        SettingsView view = new SettingsView(this);
+        screen = new Legacy(view);
+        root.removeView(old.view());
+        root.addView(view, 0, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        if (preview != null) return;   // closing the preview puts the root back and resumes the screen
+        view.requestFocus();
+        if (resumed) view.resume();
+    }
+
+    private void hideField() {
+        try {
+            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null && field.getWindowToken() != null) imm.hideSoftInputFromWindow(field.getWindowToken(), 0);
+        } catch (RuntimeException e) {
+            AppLog.w("settings: keyboard: " + e.getClass().getSimpleName());
+        }
+        field.setOnEditorActionListener(null);
+        field.setOnKeyListener(null);
+        field.setText("");
+        field.setVisibility(View.GONE);
+    }
+
+    private void resumeScreen() {
+        try {
+            screen.resume();
+        } catch (RuntimeException e) {
+            if (classic) throw e;
+            fault("resume", e);
+        }
+    }
+
+    /**
+     * Photos a computer just sent, taken in off the main thread; the page showing them is then drawn again. The
+     * classic view asks for the same in its own resume().
+     */
+    private void importPhotos() {
+        final Screen asked = screen;
+        if (!(asked instanceof SetView)) return;
+        try {
+            Photos.importInbox(this, () -> {
+                if (screen != asked || !resumed || preview != null) return;
+                try {
+                    ((SetView) asked).refresh();
+                } catch (RuntimeException e) {
+                    fault("photos", e);
+                }
+            });
+        } catch (RuntimeException e) {
+            AppLog.w("settings: photos: " + e.getClass().getSimpleName());
+        }
+    }
+
+    private void pauseScreen() {
+        try {
+            screen.pause();
+        } catch (RuntimeException e) {
+            if (classic) throw e;
+            fault("pause", e);
+        }
+    }
+
+    private void fault(String tag, RuntimeException e) {
+        AppLog.w("settings: " + tag + ": " + e.getClass().getSimpleName());   // never its message (a key, a URL)
+        useClassic(tag);
+    }
+
+    /** The classic view as a Screen. */
+    private static final class Legacy implements Screen {
+        private final SettingsView view;
+
+        Legacy(SettingsView v) {
+            view = v;
+        }
+
+        @Override public View view() {
+            return view;
+        }
+
+        @Override public void resume() {
+            view.resume();
+        }
+
+        @Override public void pause() {
+            view.pause();
+        }
+
+        @Override public void stop() {
+            view.stopKeyPage();
+        }
+
+        @Override public boolean onKey(KeyEvent e) {
+            return view.onKey(e);
+        }
+    }
+
+    /**
+     * The new screen's faults, in files/settings-faults.txt: the app's versionCode ("v 12"), then one line per caught
+     * fault ("f millis") or per process that died with Settings showing ("c millis"). One such death, or two caught
+     * faults, within 24 h open the classic view until the day passes or the app is updated, so the new screen costs
+     * the watchdog at most one of its three crashes.
+     */
+    private static final class SetFaults {
+        private static final long DAY_MS = 24 * 60 * 60_000L, CRASH_MS = 10 * 60_000L;
+        private static final int MAX_BYTES = 4096, KEPT = 40;
+
+        private SetFaults() {}
+
+        private static File file(Context c) {
+            return new File(c.getFilesDir(), "settings-faults.txt");
+        }
+
+        /** SetView.resume writes it (its pid and the time) and pause deletes it. */
+        private static File mark(Context c) {
+            return new File(c.getFilesDir(), "settings-open");
+        }
+
+        /** A caught fault, now. */
+        static void record(Context c) {
+            try {
+                add(c, "f " + System.currentTimeMillis());
+            } catch (Throwable t) {
+                AppLog.w("settings: faults: " + t.getClass().getSimpleName());
+            }
+        }
+
+        /** The screen closed on purpose (the swap to the classic view): no mark stays behind. */
+        static void closed(Context c) {
+            try {
+                //noinspection ResultOfMethodCallIgnored
+                mark(c).delete();
+            } catch (RuntimeException e) {
+                AppLog.w("settings: faults: " + e.getClass().getSimpleName());
+            }
+        }
+
+        /** Should this start show the classic view? Also turns a dead process's mark into a recorded crash. */
+        static boolean recent(Context c) {
+            try {
+                long now = System.currentTimeMillis();
+                if (died(c, now)) add(c, "c " + now);
+                int faults = 0;
+                for (String line : lines(c)) {
+                    if (line.length() < 3 || line.charAt(1) != ' ') continue;
+                    long at;
+                    try {
+                        at = Long.parseLong(line.substring(2).trim());
+                    } catch (NumberFormatException e) {
+                        continue;
+                    }
+                    if (Math.abs(now - at) >= DAY_MS) continue;
+                    if (line.charAt(0) == 'c') return true;
+                    if (line.charAt(0) == 'f') faults++;
+                }
+                return faults >= 2;
+            } catch (Throwable t) {
+                AppLog.w("settings: faults: " + t.getClass().getSimpleName());
+                return true;   // can't tell: the classic view is the safe one
+            }
+        }
+
+        /** A mark from another process, under 10 minutes old: that process died with the new screen in front. */
+        private static boolean died(Context c, long now) throws IOException {
+            File mark = mark(c);
+            if (!mark.isFile()) return false;
+            long pid = -1, at = mark.lastModified();
+            String[] parts = read(mark, 128).trim().split("[^0-9]+");
+            int n = 0;
+            for (String part : parts) {
+                if (part.isEmpty() || part.length() > 18) continue;
+                if (n == 0) pid = Long.parseLong(part);
+                else if (n == 1) at = Long.parseLong(part);
+                n++;
+            }
+            if (pid == android.os.Process.myPid()) return false;   // this process's own (the activity made again)
+            //noinspection ResultOfMethodCallIgnored
+            mark.delete();
+            return Math.abs(now - at) < CRASH_MS;
+        }
+
+        private static int version(Context c) {
+            try {
+                return c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionCode;
+            } catch (PackageManager.NameNotFoundException e) {
+                return 0;
+            }
+        }
+
+        /** The entries of this version of the app (another version's are forgotten), oldest first. */
+        private static List<String> lines(Context c) throws IOException {
+            List<String> out = new ArrayList<>();
+            File file = file(c);
+            if (!file.isFile()) return out;
+            String[] all = read(file, MAX_BYTES).split("\n");
+            if (all.length == 0 || !all[0].trim().equals("v " + version(c))) return out;
+            for (int i = 1; i < all.length; i++) {
+                String line = all[i].trim();
+                if (!line.isEmpty()) out.add(line);
+            }
+            return out;
+        }
+
+        private static void add(Context c, String entry) throws IOException {
+            List<String> lines = lines(c);
+            lines.add(entry);
+            StringBuilder text = new StringBuilder("v ").append(version(c)).append('\n');
+            for (int i = Math.max(0, lines.size() - KEPT); i < lines.size(); i++) text.append(lines.get(i)).append('\n');
+            try (FileOutputStream out = new FileOutputStream(file(c))) {
+                out.write(text.toString().getBytes(StandardCharsets.UTF_8));
+            }
+        }
+
+        private static String read(File file, int max) throws IOException {
+            byte[] buffer = new byte[max];
+            int length = 0;
+            try (FileInputStream in = new FileInputStream(file)) {
+                int n;
+                while (length < max && (n = in.read(buffer, length, max - length)) > 0) length += n;
+            }
+            return new String(buffer, 0, length, StandardCharsets.UTF_8);
+        }
     }
 
     static final class SettingsView extends View implements Choreographer.FrameCallback {
@@ -286,7 +678,7 @@ public class SettingsActivity extends Activity {
             phone = HomeMode.phone(a);
             scene.applyPalette();
             setFocusable(true);
-            setContentDescription("Free My TV");
+            setContentDescription(Ui.APP_NAME);
             installed = Updates.installedVersion(a);
             // TalkBack: one item per row, id = row + 1.
             spoken = new Spoken(this, new Spoken.Source() {
@@ -323,7 +715,7 @@ public class SettingsActivity extends Activity {
                     if (row == 0) {
                         String busyText = busyText();
                         String value = busy() ? (busyText.isEmpty() ? Ui.tr("Starting…") : busyText)
-                                : freeActive() ? "Free My TV" : Ui.tr("Original");
+                                : freeActive() ? Ui.APP_SHORT : Ui.tr("Original");
                         return Ui.trf("Home Screen, {mode}", "mode", value);
                     }
                     String[] names = {Ui.tr("Screensaver, preview"), Ui.tr("Home Settings"),
@@ -332,8 +724,8 @@ public class SettingsActivity extends Activity {
                     return row - 1 < names.length ? names[row - 1] : "";
                 }
                 case HOME_CHOICE: {
-                    String name = row == 0 ? "Free My TV, " + Ui.tr("no ads, with the new screensaver")
-                            : "Original, " + Ui.tr("the TV's factory home screen");
+                    String name = row == 0 ? Ui.APP_SHORT + ", " + Ui.tr("no ads, with the new screensaver")
+                            : Ui.tr("Original") + ", " + Ui.tr("the TV's factory home screen");
                     boolean inUse = (row == 0) == freeActive();
                     return name + (inUse ? Ui.tr(". In use") : "") + ", " + Ui.trf("{i} of {n}", "i", row + 1, "n", 2);
                 }
@@ -570,7 +962,7 @@ public class SettingsActivity extends Activity {
             // On the left: big symbol, title, description.
             float cx = 500 * k;
             Symbols.draw(getContext(), c, "sparkles", cx, 400 * k, 150 * k, 0xEBFFFFFF);
-            c.drawText("Free My TV", cx, 612 * k, title);
+            c.drawText(Ui.APP_NAME, cx, 612 * k, title);
             c.drawText(Ui.tr("Your TV's home screen and screensaver"), cx, 660 * k, subtitle);
             c.drawText(versionName(getContext()), cx, 704 * k, version);
 
@@ -584,7 +976,7 @@ public class SettingsActivity extends Activity {
         private void drawMain(Canvas c, float seconds) {
             boolean working = busy();
             String busyText = busyText();
-            String mode = freeActive() ? "Free My TV" : Ui.tr("Original");
+            String mode = freeActive() ? Ui.APP_SHORT : Ui.tr("Original");
             String[] labels = {Ui.tr("Home Screen"), Ui.tr("Screensaver"),
                     Ui.tr("Home Settings"), Ui.tr("Shelf"), Ui.tr("Top Buttons"),
                     Ui.tr("Remote Buttons"), Ui.tr("Sleep Timer"), Ui.tr("TV Settings")};
@@ -701,7 +1093,7 @@ public class SettingsActivity extends Activity {
             }
             cellValue.setColor(0x73FFFFFF);
             c.drawText(Ui.tr("Original"), colA, y, cellValue);
-            c.drawText("Free My TV", colB, y, cellValue);
+            c.drawText(Ui.APP_SHORT, colB, y, cellValue);
             cellValue.setColor(0xD9FFFFFF);
             // The mode just switched to: its memory comes two minutes later, so its cells wait with "…", not "—".
             boolean soon = !busy() && memorySoon();
@@ -737,7 +1129,7 @@ public class SettingsActivity extends Activity {
         private void drawChoice(Canvas c) {
             Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
             c.drawText(Ui.tr("Home Screen"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
-            String[][] options = {{"Free My TV", Ui.tr("No ads, with the new screensaver")},
+            String[][] options = {{Ui.APP_SHORT, Ui.tr("No ads, with the new screensaver")},
                     {Ui.tr("Original"), Ui.tr("The TV's factory home screen")}};
             int current = freeActive() ? 0 : 1;
             for (int i = 0; i < 2; i++) {
@@ -783,9 +1175,9 @@ public class SettingsActivity extends Activity {
 
         private static String versionName(Context c) {
             try {
-                return "Free My TV " + c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionName;
+                return Ui.APP_SHORT + " " + c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionName;
             } catch (android.content.pm.PackageManager.NameNotFoundException e) {
-                return "Free My TV";
+                return Ui.APP_SHORT;
             }
         }
 
@@ -1102,7 +1494,8 @@ public class SettingsActivity extends Activity {
             v[PICKS_ROW] = "›";   // opens its own screen: Picks per tab and Picks from
             v[SAVER_ROW] = onOff(Prefs.saverWatch());
             String top = Prefs.topContent();
-            v[TOP_ROW] = top.equals(Prefs.TOP_CONTINUE) ? Ui.tr("Continue Watching")
+            v[TOP_ROW] = top.equals(Prefs.TOP_BOTH) ? Ui.tr("top|Picks and Continue Watching")
+                    : top.equals(Prefs.TOP_CONTINUE) ? Ui.tr("Continue Watching")
                     : top.equals(Prefs.TOP_NONE) ? Ui.tr("Clock")
                     : Ui.tr("Picks");
             v[WATCH_ROW] = watchCount();
@@ -1365,7 +1758,7 @@ public class SettingsActivity extends Activity {
             // On Xiaomi the Mi button is the remote's Home button: it can open this home screen.
             if (RemoteKeys.XIAOMI) {
                 appPkgs.add(HomeMode.PKG);
-                appLabels.add("Free My TV");
+                appLabels.add(Ui.APP_SHORT);
             }
             if (RemoteKeys.HISENSE || RemoteKeys.GOOGLE_STREAMER) {
                 appPkgs.add(Prefs.ALL_APPS);
@@ -1973,7 +2366,7 @@ public class SettingsActivity extends Activity {
             if (!watchPickPending) return;
             watchPickPending = false;
             handler.removeCallbacks(askWatch);
-            if (Prefs.topContent().equals(Prefs.TOP_CONTINUE) && !WatchNext.allowed(getContext())) {
+            if (Prefs.showsWatching(Prefs.topContent()) && !WatchNext.allowed(getContext())) {
                 HomeMode.requestWatchGrant(getContext());
                 watchGrantPending = true;
                 handler.postDelayed(askWatch, WATCH_GRANT_MS);
@@ -1984,13 +2377,13 @@ public class SettingsActivity extends Activity {
         private void askWatch() {
             if (!running) return;
             watchGrantPending = false;
-            if (Prefs.topContent().equals(Prefs.TOP_CONTINUE) && !WatchNext.allowed(getContext())) {
+            if (Prefs.showsWatching(Prefs.topContent()) && !WatchNext.allowed(getContext())) {
                 activity.requestPermissions(new String[] {WatchNext.PERMISSION}, 1);
             }
         }
 
         private boolean watchLocked() {
-            return !Prefs.topContent().equals(Prefs.TOP_CONTINUE);
+            return !Prefs.showsWatching(Prefs.topContent());
         }
 
         /** Looks for the apps that can feed Continue Watching, in the background (only here, never on the home screen). */

@@ -43,12 +43,14 @@ import java.security.MessageDigest;
 final class Updates {
     private Updates() {}
 
-    private static final String LATEST = "https://api.github.com/repos/simbasjungles/free-my-tv/releases/latest";
+    /** Liberte minha TV's own repository (a fork of Free My TV): its releases are the only updates. */
+    private static final String REPO = "matheusbcbg/liberte-minha-tv";
+    private static final String LATEST = "https://api.github.com/repos/" + REPO + "/releases/latest";
     // The only place the APK may come from: this repository's releases (github.com redirects to its download host).
-    private static final String RELEASES = "https://github.com/simbasjungles/free-my-tv/releases/download/";
+    private static final String RELEASES = "https://github.com/" + REPO + "/releases/download/";
     // The release key's certificate, as `apksigner verify --print-certs` shows it: only APKs signed with it come in.
-    private static final String RELEASE_CERT = "b85d4ff69cb42bfb1837ee0279506363954470b16402a4165f2f095886d19204";
-    private static final String ASSET = "FreeMyTV.apk";
+    private static final String RELEASE_CERT = "d4a6e7b896c7a822f356095f9f0e2b59fe4c98a69b51aeeb3a26f4bb7ecd6c0e";
+    private static final String ASSET = "LiberteMinhaTV.apk";
     private static final long MAX_SIZE = 30L << 20;   // the APK is about 1.5 MB
     private static final long WEEK = 7 * 24 * 3600_000L;
     static final int JOB = 2900;

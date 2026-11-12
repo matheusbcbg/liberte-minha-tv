@@ -89,9 +89,6 @@ final class Place {
 
     /** The picks' streaming region. */
     static String region() {
-        String v = Config.TMDB_REGION.trim().toUpperCase(Locale.ROOT);
-        if (!v.isEmpty()) return v;
-        load();
-        return country.toUpperCase(Locale.ROOT);
+        return "BR";   // fork: always Brazil, never from config, --generic or the time zone (America/Bogota)
     }
 }

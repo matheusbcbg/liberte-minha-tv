@@ -29,6 +29,8 @@ final class WatchNext {
     /** Declared by apps that write the TV's lists (apps can also write their own rows and Watch Next without it). */
     private static final String WRITE_EPG = "com.android.providers.tv.permission.WRITE_EPG_DATA";
     static final int PER_APP = 2, MAX = 12;
+    /** Item.type when the row has no COLUMN_TYPE (TvContract's own values start at 0, TYPE_MOVIE). */
+    static final int TYPE_UNKNOWN = -1;
     /** Channel names that mean "continue watching" (apps name their own channel). */
     private static final Set<String> CHANNEL_NAMES = new HashSet<>(java.util.Arrays.asList(
             "continue watching", "seguir viendo", "continuar viendo", "continuar assistindo", "continue assistindo"));
@@ -38,6 +40,13 @@ final class WatchNext {
         String app;                     // the app's name, for the card's details line
         long duration, position, engaged;
         String intent;
+        /**
+         * TvContract's TYPE_* (TYPE_TV_EPISODE…), or TYPE_UNKNOWN when the app gave none: TvContract's TYPE_MOVIE is 0,
+         * so "unknown" can't be 0. year: of the release date, or 0.
+         */
+        int type = TYPE_UNKNOWN, year;
+        /** As the app wrote them (display numbers, not parsed), null when absent: what WatchMatch and the card read. */
+        String season, episodeNumber, episodeTitle;
         final Uri pictureUri;
         final String pictureKey, bannerKey;
         private final String picture;
@@ -55,6 +64,15 @@ final class WatchNext {
         /** The picture for a 16:9 card: the thumbnail (usually 16:9) before the poster. */
         String picture() {
             return picture;
+        }
+
+        /**
+         * A film: the app says so (or says nothing) and gives no season or episode. A "movie" with an episode number is
+         * an app that left the type at its default (TYPE_MOVIE is 0), so the numbers win.
+         */
+        boolean movie() {
+            if (type != TvContract.WatchNextPrograms.TYPE_MOVIE && type != TYPE_UNKNOWN) return false;
+            return season == null && episodeNumber == null;
         }
 
         /** 0 to 1, or -1 when there is no position worth showing (not started, or no length). */
@@ -117,7 +135,7 @@ final class WatchNext {
                 }
             }
         } catch (RuntimeException e) {
-            AppLog.w("continue watching apps: " + e.getMessage());
+            AppLog.w("continue watching apps: " + e.getClass().getSimpleName());
         }
         if (allowed(c)) {
             ContentResolver cr = c.getContentResolver();
@@ -154,7 +172,7 @@ final class WatchNext {
                 if (p != null) out.add(p);
             }
         } catch (RuntimeException e) {
-            AppLog.w("continue watching apps " + uri + ": " + e.getMessage());
+            AppLog.w("continue watching apps: " + e.getClass().getSimpleName());
         }
     }
 
@@ -183,7 +201,7 @@ final class WatchNext {
                 }
             }
         } catch (RuntimeException e) {
-            AppLog.w("continue watching channels: " + e.getMessage());
+            AppLog.w("continue watching channels: " + e.getClass().getSimpleName());
         }
         return ids;
     }
@@ -201,7 +219,10 @@ final class WatchNext {
                 TvContract.WatchNextPrograms.COLUMN_LAST_PLAYBACK_POSITION_MILLIS,
                 TvContract.WatchNextPrograms.COLUMN_POSTER_ART_URI,
                 TvContract.WatchNextPrograms.COLUMN_THUMBNAIL_URI,
-                TvContract.WatchNextPrograms.COLUMN_INTENT_URI));
+                TvContract.WatchNextPrograms.COLUMN_INTENT_URI,
+                // Both tables have these (BaseProgramColumns / PreviewProgramColumns, API 26).
+                TvContract.WatchNextPrograms.COLUMN_TYPE,
+                TvContract.WatchNextPrograms.COLUMN_RELEASE_DATE));
         // Preview programs have no engagement time or Watch Next type.
         if (TvContract.WatchNextPrograms.CONTENT_URI.equals(uri)) {
             projection.add(TvContract.WatchNextPrograms.COLUMN_LAST_ENGAGEMENT_TIME_UTC_MILLIS);
@@ -220,8 +241,14 @@ final class WatchNext {
                 Item it = new Item(pkg, text(cur, TvContract.WatchNextPrograms.COLUMN_POSTER_ART_URI),
                         text(cur, TvContract.WatchNextPrograms.COLUMN_THUMBNAIL_URI));
                 it.title = title;
-                String season = text(cur, TvContract.WatchNextPrograms.COLUMN_SEASON_DISPLAY_NUMBER);
-                String episode = text(cur, TvContract.WatchNextPrograms.COLUMN_EPISODE_DISPLAY_NUMBER);
+                String season = blankToNull(text(cur, TvContract.WatchNextPrograms.COLUMN_SEASON_DISPLAY_NUMBER));
+                String episode = blankToNull(text(cur, TvContract.WatchNextPrograms.COLUMN_EPISODE_DISPLAY_NUMBER));
+                it.season = season;
+                it.episodeNumber = episode;
+                it.episodeTitle = blankToNull(text(cur, TvContract.WatchNextPrograms.COLUMN_EPISODE_TITLE));
+                it.type = isNull(cur, TvContract.WatchNextPrograms.COLUMN_TYPE)
+                        ? TYPE_UNKNOWN : (int) number(cur, TvContract.WatchNextPrograms.COLUMN_TYPE);
+                it.year = year(text(cur, TvContract.WatchNextPrograms.COLUMN_RELEASE_DATE));
                 // Season and episode as each language writes them: "S2 E5", "T2 E5" (temporada), "St. 2 F. 5".
                 it.episode = season != null && episode != null
                         ? Ui.trf("S{season} E{episode}", "season", season, "episode", episode)
@@ -234,14 +261,33 @@ final class WatchNext {
                 out.add(it);
             }
         } catch (RuntimeException e) {   // a provider that refuses (no permission on some firmware) means nothing to show
-            AppLog.w("continue watching " + uri + ": " + e.getMessage());
+            AppLog.w("continue watching: " + e.getClass().getSimpleName());
         }
         return out;
+    }
+
+    private static String blankToNull(String s) {
+        return s == null || s.trim().isEmpty() ? null : s.trim();
+    }
+
+    /** The first 4 digits of a release date ("2019", "2019-10-03"), when they make a plausible year; else 0. */
+    static int year(String date) {
+        if (date == null) return 0;
+        String d = date.trim();
+        if (d.length() < 4) return 0;
+        for (int i = 0; i < 4; i++) if (!Character.isDigit(d.charAt(i))) return 0;
+        int y = Integer.parseInt(d.substring(0, 4));
+        return y >= 1870 && y <= 2200 ? y : 0;
     }
 
     private static String text(Cursor c, String column) {
         int i = c.getColumnIndex(column);
         return i < 0 || c.isNull(i) ? null : c.getString(i);
+    }
+
+    private static boolean isNull(Cursor c, String column) {
+        int i = c.getColumnIndex(column);
+        return i < 0 || c.isNull(i);
     }
 
     private static long number(Cursor c, String column) {

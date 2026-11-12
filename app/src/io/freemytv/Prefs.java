@@ -168,6 +168,12 @@ final class Prefs {
         sp().edit().putStringSet(key, new HashSet<>(value)).apply();
     }
 
+    /** The same for a String (null removes it): Início's layout and its mirror into "shelf" change no other screen. */
+    private static void putQuietly(String key, String value) {
+        if (value == null) sp().edit().remove(key).apply();
+        else sp().edit().putString(key, value).apply();
+    }
+
     // MARK: - Language and units
 
     /** "auto" or a language code as picked ("pt", "fr", "zh-CN"…); Ui.applyLanguage finds its catalogue. */
@@ -284,14 +290,18 @@ final class Prefs {
 
     // MARK: - Top of the home screen
 
-    static final String TOP_PICKS = "picks", TOP_CONTINUE = "continue", TOP_NONE = "none";
-    static final String[] TOP_CONTENT = {TOP_PICKS, TOP_CONTINUE, TOP_NONE};
+    static final String TOP_BOTH = "both", TOP_PICKS = "picks", TOP_CONTINUE = "continue", TOP_NONE = "none";
+    static final String[] TOP_CONTENT = {TOP_BOTH, TOP_PICKS, TOP_CONTINUE, TOP_NONE};
 
-    /** What the cards under the title show: the recommendations (TMDB), what you were watching in your apps, or nothing. */
+    /** What the cards under the title show: Continue Watching followed by the picks (Up Next), the recommendations (TMDB),
+     *  what you were watching in your apps, or nothing. */
     static String topContent() {
-        String v = sp().getString("topContent", TOP_PICKS);
-        return v.equals(TOP_CONTINUE) || v.equals(TOP_NONE) ? v : TOP_PICKS;
+        String v = sp().getString("topContent", TOP_BOTH);
+        return v.equals(TOP_PICKS) || v.equals(TOP_CONTINUE) || v.equals(TOP_NONE) ? v : TOP_BOTH;
     }
+
+    /** Modes whose top shows Continue Watching (reads Watch Next, needs READ_TV_LISTINGS). */
+    static boolean showsWatching(String mode) { return TOP_CONTINUE.equals(mode) || TOP_BOTH.equals(mode); }
 
     static void setTopContent(String v) { put("topContent", v); }
 
@@ -409,6 +419,75 @@ final class Prefs {
         StringBuilder sb = new StringBuilder();
         for (String p : packages) sb.append(sb.length() == 0 ? "" : ",").append(p);
         put("shelf", sb.toString());
+    }
+
+    // MARK: - Início (the "Moderno" home screen layout)
+
+    static final String LAYOUT_MODERN = "modern", LAYOUT_CLASSIC = "classic";
+
+    /** "modern" (Início, StartView) or "classic" (HomeView). Default: Clássico on older TVs (Ui.LEGACY), else Moderno. */
+    static String homeLayout() {
+        String def = Ui.LEGACY ? LAYOUT_CLASSIC : LAYOUT_MODERN;
+        if (app == null) return def;
+        String v = sp().getString("homeLayout", def);
+        return LAYOUT_CLASSIC.equals(v) || LAYOUT_MODERN.equals(v) ? v : def;
+    }
+
+    static void setHomeLayout(String v) {
+        put("homeLayout", LAYOUT_CLASSIC.equals(v) ? LAYOUT_CLASSIC : LAYOUT_MODERN);
+    }
+
+    /** Início's saved order, folders and hidden keys (HomeLayout's text); null until it is saved once. */
+    static String startLayout() {
+        return app == null ? null : sp().getString("startLayout", null);
+    }
+
+    /** Quiet: moving a tile must not rebuild the home screen (HomeActivity recreates on a new version). */
+    static void setStartLayout(String s) {
+        putQuietly("startLayout", s);
+    }
+
+    /** When "Reset Home Screen layout" was last chosen (System.currentTimeMillis); 0 = never. */
+    static long startLayoutReset() {
+        return app == null ? 0 : sp().getLong("startLayoutReset", 0);
+    }
+
+    static void setStartLayoutReset(long at) {
+        sp().edit().putLong("startLayoutReset", at).apply();
+        version++;
+    }
+
+    /**
+     * "Reset Home Screen layout": Início seeds its order again, from the built-in shelf (the Dock's mirror in "shelf"
+     * goes, so the classic shelf is the original one too, until Início saves its new Dock).
+     */
+    static void resetStartLayout(long at) {
+        putQuietly("shelf", (String) null);
+        setStartLayoutReset(at);
+    }
+
+    /** Something Início shows changed outside it (Hidden apps, a retry after a fallback): the home starts over on return. */
+    static void homeChanged() {
+        version++;
+    }
+
+    /** Pictures from TMDB at the top of Início (the carousels and the matched Continue Watching art). */
+    static boolean topShelfPreviews() {
+        return app == null || sp().getBoolean("topShelfPreviews", true);
+    }
+
+    static void setTopShelfPreviews(boolean on) {
+        put("topShelfPreviews", on);
+    }
+
+    /**
+     * Início's Dock mirrored into the classic shelf (quiet), so the fallback shows the same favourites. A Dock with no
+     * app (only Explorar, Live TV or inputs) leaves the classic shelf its built-in list rather than an empty one.
+     */
+    static void setShelfQuietly(List<String> packages) {
+        StringBuilder sb = new StringBuilder();
+        if (packages != null) for (String p : packages) if (p != null && !p.isEmpty()) sb.append(sb.length() == 0 ? "" : ",").append(p);
+        putQuietly("shelf", sb.length() == 0 ? null : sb.toString());
     }
 
     // MARK: - Sleep timer

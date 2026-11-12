@@ -19,6 +19,10 @@ if [ "$what" = all ] || [ "$what" = android ]; then
   ./build.sh
   bash tools/test-remote.sh
   bash tools/test-order.sh
+  bash tools/test-explore-data.sh
+  bash tools/test-explore-ui.sh
+  bash tools/test-home.sh
+  bash tools/test-settings.sh
 fi
 
 if [ "$what" = all ] || [ "$what" = web ]; then

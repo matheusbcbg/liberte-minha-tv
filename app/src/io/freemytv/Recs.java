@@ -1058,6 +1058,7 @@ final class Recs {
         String[] first = null;
         // "HBO Max Amazon Channel", "Apple TV Amazon Channel"...: a subscription sold inside another app, not this one.
         if (n.contains(" channel")) return null;
+        if (ProviderTable.unreliable(providerId, name)) return null;
         for (String[] s : SERVICES) {
             // Apple TV: only the streaming service (TMDB provider 350); provider 2 is the Apple TV Store (rent or buy).
             if (s[1].equals("appletv") && providerId != 350) continue;
@@ -1123,7 +1124,10 @@ final class Recs {
      */
     private boolean linksOn() {
         String key = watchmodeKey();
-        return !key.isEmpty() && cache.getInt("wm:refused", 0) != key.hashCode() && Prefs.topContent().equals(Prefs.TOP_PICKS);
+        return !key.isEmpty() && cache.getInt("wm:refused", 0) != key.hashCode()
+                && (Prefs.topContent().equals(Prefs.TOP_PICKS)
+                    // Up Next opens its picks through Explore; the screensaver's Watch opens the link itself.
+                    || Prefs.topContent().equals(Prefs.TOP_BOTH) && Prefs.saverWatch());
     }
 
     /** Sets p.link from what was looked up before, or looks it up (2 requests of the free plan's 2,500 a month). */
