@@ -516,11 +516,13 @@ final class BrowsePage extends ExplorePage implements BrowseStack.Host {
                     r.set(again, m);
                     wantLogos(r);
                     stack.rowChanged(r);
+                    syncFollow();
                 }));
             }
         }
         r.state = Row.READY;
         stack.rowChanged(r);
+        syncFollow();
     }
 
     /** Quero assistir, newest first (an empty list hides the row). */
@@ -780,33 +782,53 @@ final class BrowsePage extends ExplorePage implements BrowseStack.Host {
     /** Holding OK on a title card (any Explore page): Watch on, Quero assistir, More info. */
     static void titleMenu(ExploreView host, Tmdb tmdb, Card c, RectF from, Runnable open) {
         ExploreModel.Details d = tmdb.peekDetails(c.kind, c.id);
-        String back = null, poster = null;
+        String back = backdropOf(c), poster = null;
         int year = 0;
         if (c.ref instanceof ExploreModel.Title) {
             ExploreModel.Title t = (ExploreModel.Title) c.ref;
-            back = t.backdrop;
             poster = t.poster;
             year = t.year;
         } else if (c.ref instanceof Watchlist.Item) {
             Watchlist.Item w = (Watchlist.Item) c.ref;
-            back = w.backdrop;
             poster = w.poster;
             year = w.year;
         }
         host.titleMenu(c.kind, c.id, c.title, back, poster, year, d, from, open);
     }
 
+    /** The TMDB backdrop path a focused row card can show behind the page (title, Quero assistir, matched Continue Watching). */
+    static String backdropOf(Card c) {
+        if (c == null) return null;
+        if (c.ref instanceof ExploreModel.Title) return ((ExploreModel.Title) c.ref).backdrop;
+        if (c.ref instanceof Watchlist.Item) return ((Watchlist.Item) c.ref).backdrop;
+        if (c.type == Card.WATCH && c.image != null && c.imageSpec == ExploreImages.WIDE && c.image.startsWith("/")) return c.image;
+        return null;
+    }
+
     @Override public void onFocus(Row r, Card c) {
         host.click().move();
         host.handler().removeCallbacks(follow);
-        followPath = c != null && c.ref instanceof ExploreModel.Title ? ((ExploreModel.Title) c.ref).backdrop
-                : c != null && c.ref instanceof Watchlist.Item ? ((Watchlist.Item) c.ref).backdrop : null;
+        followPath = backdropOf(c);
         if (followPath != null) host.handler().postDelayed(follow, FOLLOW_MS);
+    }
+
+    /** Updates the backdrop follow timer when the focused row reloads (e.g. WatchMatch fills in Continue Watching's art). */
+    private void syncFollow() {
+        if (zone != Z_ROWS) return;
+        String next = backdropOf(stack.focusedCard());
+        if (next == null ? followPath == null : next.equals(followPath)) return;
+        host.handler().removeCallbacks(follow);
+        followPath = next;
+        if (followPath != null && host.running() && host.isCurrent(this)) host.handler().postDelayed(follow, FOLLOW_MS);
     }
 
     /** After 700 ms on a card, the background takes its picture. */
     private void follow() {
-        if (zone == Z_ROWS && followPath != null && host.isCurrent(this)) host.backdrop().show(followPath, true);
+        if (zone == Z_ROWS && followPath != null && host.isCurrent(this)) {
+            host.backdrop().show(followPath, true);
+            // A picture already in memory starts its crossfade here, outside a frame: run the frames for it.
+            host.wake();
+        }
     }
 
     @Override public void wake() {
